@@ -1,0 +1,33 @@
+{
+  "roll_no": "24B4521",
+  "machine": "Windows laptop, NVIDIA RTX 4050 Laptop GPU 6 GB; T4 noise emulated (code/t4_noise.py) so outputs match the kit's T4 baseline",
+  "seed": 0,
+  "task1": {
+    "val_cer": 0.2421,
+    "val_sim": 0.8303
+  },
+  "task2": {
+    "val_cer": 0.1209,
+    "val_sim": 0.8355,
+    "val_cer_hard": 0.0946
+  },
+  "task3": {
+    "method_name": "Rule-based Indian-English respelling of Latin-script words into Devanagari (after Task 2 normalization)",
+    "targeted_failure": "english_word_error",
+    "targeted_category": "hinglish",
+    "builds_on_task2": true,
+    "settings": {},
+    "val_cer": null,
+    "val_sim": null,
+    "val_cer_targeted": null,
+    "val_control_cer": 0.1209
+  },
+  "task4": {
+    "method_name": "",
+    "settings": {},
+    "val_cer": null,
+    "baseline_seconds": null,
+    "fast_seconds": null,
+    "speedup": null
+  }
+}

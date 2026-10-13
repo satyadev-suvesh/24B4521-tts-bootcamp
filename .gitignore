@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+NOTES_FOR_YOU.md
+*.zip
+predictions/*_timing.json
