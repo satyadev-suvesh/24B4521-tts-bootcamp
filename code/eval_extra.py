@@ -24,31 +24,49 @@ sys.path.insert(0, str(KIT))
 import metrics as M  # noqa: E402
 
 
+def _local(repo):
+    """Use a copy in <kit>/work/models/<name> if present (avoids HF cache symlinks on Windows)."""
+    p = KIT / "work" / "models" / repo.split("/")[1]
+    return str(p) if p.exists() else repo
+
+
 class MMS:
     def __init__(self, device):
         import torch
         from transformers import AutoProcessor, Wav2Vec2ForCTC
-        mid = "facebook/mms-1b-all"
+        mid = _local("facebook/mms-1b-all")
         self.proc = AutoProcessor.from_pretrained(mid, target_lang="hin")
         self.model = Wav2Vec2ForCTC.from_pretrained(mid, target_lang="hin", ignore_mismatched_sizes=True,
                                                     torch_dtype=torch.float16 if device == "cuda" else torch.float32)
         self.model.to(device).eval()
         self.device = device
+        # English words must come out in Devanagari, so Latin letters are suppressed. MMS was
+        # trained on transcripts that write numbers as digits and drops number words when digits
+        # are suppressed, so digits are allowed and turned into words afterwards (normalize()),
+        # matching the scorer's "numbers as words" rule.
+        import re
+        bad = re.compile(r"[A-Za-z$€£]")
+        tok = self.proc.tokenizer
+        vocab = tok.get_vocab()
+        keep = set(tok.all_special_tokens) | {"|", tok.word_delimiter_token}
+        self.bad_ids = sorted(i for t, i in vocab.items() if bad.search(t) and t not in keep)
 
     def transcribe(self, y):
         import torch
         inp = self.proc(y, sampling_rate=16000, return_tensors="pt")
         x = inp["input_values"].to(self.device, dtype=self.model.dtype)
         with torch.no_grad():
-            ids = self.model(x).logits.argmax(-1)[0]
-        return self.proc.decode(ids)
+            logits = self.model(x).logits[0].float()
+        logits[:, self.bad_ids] = -float("inf")
+        from normalize import normalize
+        return normalize(self.proc.decode(logits.argmax(-1)))
 
 
 class WavLMSV:
     def __init__(self, device):
         import torch
         from transformers import AutoFeatureExtractor, WavLMForXVector
-        mid = "microsoft/wavlm-base-plus-sv"
+        mid = _local("microsoft/wavlm-base-plus-sv")
         self.fe = AutoFeatureExtractor.from_pretrained(mid)
         self.model = WavLMForXVector.from_pretrained(mid).to(device).eval()
         self.device = device

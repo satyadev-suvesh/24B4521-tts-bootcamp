@@ -116,6 +116,20 @@ cd ..
 .venv\Scripts\python.exe metrics.py submission/predictions/val_control --json work/val_control.json --csv work/val_control.csv
 ```
 
+Result (seed 0): overall CER 0.2421 → **0.1209**, hard 0.4583 → **0.0946**, SIM 0.8303 → 0.8355.
+hindi, hinglish and long are bit-for-bit unchanged, because their text is unchanged and the noise
+is the T4's.
+
+Robustness check with recognizers outside the kit (`code/eval_extra.py`, Meta MMS-1B-all with its
+Hindi adapter). Latin letters are suppressed and digits are converted to words with `normalize()`,
+because MMS writes numbers as digits. Hard CER goes 0.447 → 0.189 under MMS. Its remaining hard
+errors are its own digit-grouping mistakes (it hears "दो हज़ार छब्बीस" as "2,26"). On hinglish, MMS
+agrees with the kit's Whisper (0.296 vs 0.302).
+
+```powershell
+.venv\Scripts\python.exe submission\code\eval_extra.py data/baseline_val submission/predictions/val_control --json work/extra.json --csv work/extra.csv
+```
+
 Without the T4 emulation, the official command is equivalent apart from the noise:
 `python baseline/run_baseline.py --items data/eval_items.csv --out predictions/t2_norm --text-csv predictions/t2_normalized.csv --text-column normalized_text`.
 
