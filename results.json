@@ -16,10 +16,20 @@
     "targeted_failure": "english_word_error",
     "targeted_category": "hinglish",
     "builds_on_task2": true,
-    "settings": {},
-    "val_cer": null,
-    "val_sim": null,
-    "val_cer_targeted": null,
+    "settings": {
+      "nfe_step": 32,
+      "cfg_strength": 2.0,
+      "sway_sampling_coef": -1.0,
+      "speed": 1.0,
+      "cross_fade_duration": 0.15,
+      "target_rms": 0.1,
+      "seed": 0,
+      "noise": "T4 (code/t4_noise.py)",
+      "text": "normalize() (Task 2) then transliterate() (code/translit.py)"
+    },
+    "val_cer": 0.0571,
+    "val_sim": 0.8399,
+    "val_cer_targeted": 0.0467,
     "val_control_cer": 0.1209
   },
   "task4": {

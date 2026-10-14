@@ -144,14 +144,35 @@ agrees with the kit's Whisper (0.296 vs 0.302).
 Without the T4 emulation, the official command is equivalent apart from the noise:
 `python baseline/run_baseline.py --items data/eval_items.csv --out predictions/t2_norm --text-csv predictions/t2_normalized.csv --text-column normalized_text`.
 
-## Task 3 – idea (planned; see idea.md)
+## Task 3 – idea (see idea.md)
 
 `code/translit.py` respells Latin-script English words in Devanagari with hand-written rules for
 graphemes, Indian-English vowels and Hindi orthography. It has no word list; the rules were
 developed on the validation words only. `python code/test_translit.py` checks the rules at text
 level on the 17 English words of the validation items, plus the loanword in the V3 prompt
 transcript: 13 of 18 are exact after the scorer's canonicalization. The audio experiment
-(`val_idea/`, `t3_idea/`) runs only after the idea card was submitted.
+(`val_idea/`, `t3_idea/`) was run only after the idea card (parts 1–3) was submitted on the form.
+
+```powershell
+# everything below: Task 3 text, val_idea/ + t3_idea/ (seed 0, T4 noise, baseline decoding),
+# metrics.py on val_idea and val_control, MMS/WavLM check, results.json, zip + check_format
+powershell -ExecutionPolicy Bypass -File submission\code\run_task3.ps1
+# the same comparison at seeds 1 and 2 (control and idea), then the 3-seed summary
+powershell -ExecutionPolicy Bypass -File submission\code\run_task3_seeds.ps1
+```
+
+Results on the 24 validation items (kit `metrics.py`):
+
+| | val_control (Task 2 text) | val_idea (Task 2 + respelling) |
+|---|---|---|
+| hinglish CER, seed 0 | 0.302 | **0.047** |
+| hinglish CER, mean of seeds 0/1/2 | 0.306 | **0.043** |
+| overall CER, seed 0 (mean of 3 seeds) | 0.121 (0.128) | 0.057 (0.062) |
+| SIM, seed 0 (mean of 3 seeds) | 0.835 (0.839) | 0.840 (0.839) |
+| hinglish CER with MMS-1B (`code/eval_extra.py`) | 0.296 | 0.060 |
+
+All six hinglish items improve; hard, hindi and long items are unchanged, since their text is unchanged.
+Per-item scores: `work/val_idea.csv` (written by `run_task3.ps1`).
 
 ## Task 4 – faster (groundwork; final timing after Task 3)
 
