@@ -69,6 +69,19 @@ def synth_one(engine, text, prompt_path, prompt_text, seed=0, noise="t4", **over
     return engine(text, prompt_path, prompt_text, seed=seed, **overrides)
 
 
+def peak_guard(y, peak=0.95):
+    """Loudness normalization (allowed post-processing): if the waveform would clip, scale the
+    whole utterance so its peak is `peak`. Outputs that do not exceed `peak` are untouched.
+    IndicF5 copies the prompt's loudness; with loud prompts (RMS > target_rms the wrapper does not
+    rescale) some outputs exceed full scale and fail the kit's clipping check (> 0.1 % of samples
+    at |x| >= 0.999) once save_wav clips them."""
+    import numpy as np
+    m = float(np.abs(y).max()) if len(y) else 0.0
+    if peak and m > peak:
+        y = y * (peak / m)
+    return y
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--items", required=True)
@@ -80,6 +93,7 @@ def main():
     ap.add_argument("--text-column", default="normalized_text")
     ap.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE", help="decoding overrides")
     ap.add_argument("--noise", choices=["t4", "native"], default="t4")
+    ap.add_argument("--peak", type=float, default=0.95, help="peak guard against clipping (0 = off)")
     ap.add_argument("--no-warmup", action="store_true")
     a = ap.parse_args()
 
@@ -121,13 +135,13 @@ def main():
             torch.cuda.synchronize()
         dt = time.time() - t
         total += dt
-        save_wav(out / f"{it['id']}.wav", y)
+        save_wav(out / f"{it['id']}.wav", peak_guard(y, a.peak))
         per_item[it["id"]] = round(dt, 3)
         print(f"[{i}/{len(items)}] {it['id']}: {dt:.2f}s synth, {len(y) / 16000:.2f}s audio", flush=True)
 
     gpu = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"
     timing = {"total_synth_s": round(total, 3), "n_items": len(items), "model_load_s": round(load_s, 1),
-              "seed": a.seed, "overrides": overrides, "noise": a.noise, "gpu": gpu,
+              "seed": a.seed, "overrides": overrides, "noise": a.noise, "peak_guard": a.peak, "gpu": gpu,
               "python": platform.python_version(), "items_file": str(a.items),
               "text_csv": a.text_csv, "per_item_s": per_item}
     tpath = out.parent / f"{out.name}_timing.json"

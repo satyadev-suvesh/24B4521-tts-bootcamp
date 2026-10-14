@@ -75,7 +75,7 @@ class _Word:
     def magic_e(self, j):
         """Vowel at j followed by one consonant and a final silent e (optionally +s/+d)."""
         c = self.at(j + 1)
-        if not c or _is_v(c) or c in "wxy":
+        if not c or _is_v(c) or c in "wxy" or self.cons_run(j + 1) != 1:
             return False
         tail = self.w[j + 2:]
         return tail in ("e", "es", "ed") and not (c == "r")
@@ -87,8 +87,8 @@ class _Word:
         return not re.search(r"[aeiouy]", rest)
 
     def open_syllable(self, j):
-        """Vowel at j followed by exactly one consonant and then a vowel."""
-        return self.cons_run(j + 1) == 1 and _is_v(self.at(j + 2))
+        """Vowel at j followed by exactly one consonant and then a vowel (x = /ks/ closes it)."""
+        return self.cons_run(j + 1) == 1 and self.at(j + 1) != "x" and _is_v(self.at(j + 2))
 
 
 def _vowel(s, i):
@@ -443,6 +443,9 @@ def respell_word(word: str) -> str:
     w = re.sub(r"[^a-z]", "", word.lower())
     if not w:
         return word
+    if len(w) == 1:                       # a lone letter is read by its name (I -> आई, x -> एक्स)
+        from normalize import LETTERS
+        return LETTERS[w.upper()]
     return _render(_scan(w))
 
 

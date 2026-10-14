@@ -8,7 +8,7 @@
   },
   "task2": {
     "val_cer": 0.1209,
-    "val_sim": 0.8355,
+    "val_sim": 0.8354,
     "val_cer_hard": 0.0946
   },
   "task3": {

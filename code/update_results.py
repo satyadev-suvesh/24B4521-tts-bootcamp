@@ -65,6 +65,11 @@ def main():
             t4["method_name"] = a.method
         if a.settings:
             t4["settings"] = json.loads(a.settings)
+        elif a.fast_timing:
+            ft = load(a.fast_timing)
+            t4["settings"] = {**ft.get("overrides", {}), "amp": ft.get("amp"), "batched_cfg": ft.get("batched_cfg"),
+                              "cached_text_embedding": True, "cached_prompt": True, "noise": ft.get("noise"),
+                              "peak_guard": ft.get("peak_guard"), "gpu": ft.get("gpu")}
     Path(a.results).write_text(json.dumps(res, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(res, ensure_ascii=False, indent=2))
 

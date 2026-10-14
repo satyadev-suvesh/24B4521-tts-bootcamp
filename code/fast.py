@@ -89,8 +89,9 @@ class FastEngine:
         h = dit.norm_out(h, tt)
         return dit.proj_out(h)
 
-    def sample(self, cond, text_list, duration, steps, cfg_strength, sway):
-        """Same as CFM.sample() for batch 1 (euler, sway sampling, CFG), batched CFG."""
+    def sample(self, cond, text_list, duration, steps, cfg_strength, sway, cfg_steps=None):
+        """Same as CFM.sample() for batch 1 (euler, sway sampling, CFG), batched CFG.
+        cfg_steps: apply guidance only on the first cfg_steps steps (None = all, as the baseline)."""
         torch = self.torch
         from f5_tts.model.utils import list_str_to_idx, lens_to_mask
         cond = cond.to(torch.float32)
@@ -121,16 +122,21 @@ class FastEngine:
         if sway is not None:
             t = t + sway * (torch.cos(torch.pi / 2 * t) - 1 + t)
         for i in range(steps):
-            with ac:
-                out = self._flow(torch.cat([y, y], 0), cond2, text2, t[i])
-            out = out.float()
-            pred, null = out[:1], out[1:]
-            v = pred + (pred - null) * cfg_strength
+            if cfg_steps is None or i < cfg_steps:
+                with ac:
+                    out = self._flow(torch.cat([y, y], 0), cond2, text2, t[i])
+                out = out.float()
+                pred, null = out[:1], out[1:]
+                v = pred + (pred - null) * cfg_strength
+            else:
+                with ac:
+                    v = self._flow(y, cond2[:1], text2[:1], t[i]).float()
             y = y + (t[i + 1] - t[i]) * v
         return torch.where(cond_mask, cond, y)
 
     def __call__(self, text, prompt_wav, prompt_text, seed=0, nfe_step=32, cfg_strength=2.0,
-                 sway_sampling_coef=-1.0, speed=1.0, cross_fade_duration=0.15, target_rms=0.1):
+                 sway_sampling_coef=-1.0, speed=1.0, cross_fade_duration=0.15, target_rms=0.1,
+                 cfg_steps=None):
         torch = self.torch
         from baseline.tts import set_seed, resample, to_float
         set_seed(seed)
@@ -146,7 +152,8 @@ class FastEngine:
                 text_list = self.U.convert_char_to_pinyin([r["ref_text"] + gen_text])
                 gen_chars = len("".join(gen_text.split()))
                 duration = r["ref_len"] + int(r["ref_len"] / ref_chars * gen_chars / speed)
-                mel = self.sample(r["cond"], text_list, duration, nfe_step, cfg_strength, sway_sampling_coef)
+                mel = self.sample(r["cond"], text_list, duration, nfe_step, cfg_strength, sway_sampling_coef,
+                                  cfg_steps)
                 mel = mel[:, r["ref_len"]:, :].permute(0, 2, 1)
                 w = self.vocoder.decode(mel)
                 if r["rms"] < target_rms:
@@ -172,8 +179,10 @@ def main():
     ap.add_argument("--text-csv")
     ap.add_argument("--text-column", default="normalized_text")
     ap.add_argument("--nfe", type=int, default=16)
+    ap.add_argument("--cfg-steps", type=int, default=None, help="guidance only on the first N steps")
     ap.add_argument("--amp", choices=["none", "fp16", "bf16"], default="none", help="autocast dtype for the transformer")
     ap.add_argument("--noise", choices=["t4", "native"], default="t4")
+    ap.add_argument("--peak", type=float, default=0.95, help="peak guard against clipping (0 = off)")
     ap.add_argument("--no-warmup", action="store_true")
     ap.add_argument("--check", action="store_true", help="compare with the baseline engine on the first item")
     a = ap.parse_args()
@@ -195,6 +204,8 @@ def main():
     eng = FastEngine(noise=a.noise, amp=a.amp)
     load_s = time.time() - t0
     settings = dict(nfe_step=a.nfe)
+    if a.cfg_steps is not None:
+        settings["cfg_steps"] = a.cfg_steps
     if a.check and items:
         it = items[0]; p = prompts[it["prompt_id"]]
         yb = synth.synth_one(eng.base, it["text"], p["path"], p["transcript"], a.seed, a.noise)
@@ -216,13 +227,13 @@ def main():
         torch.cuda.synchronize()
         dt = time.time() - t
         total += dt
-        save_wav(out / f"{it['id']}.wav", y)
+        save_wav(out / f"{it['id']}.wav", synth.peak_guard(y, a.peak))
         per_item[it["id"]] = round(dt, 3)
         print(f"[{i}/{len(items)}] {it['id']}: {dt:.2f}s synth, {len(y) / 16000:.2f}s audio", flush=True)
 
     gpu = torch.cuda.get_device_name(0)
     timing = {"total_synth_s": round(total, 3), "n_items": len(items), "model_load_s": round(load_s, 1),
-              "seed": a.seed, "overrides": settings, "amp": a.amp, "batched_cfg": True,
+              "seed": a.seed, "overrides": settings, "amp": a.amp, "batched_cfg": True, "peak_guard": a.peak,
               "noise": a.noise, "gpu": gpu, "python": platform.python_version(),
               "items_file": str(a.items), "text_csv": a.text_csv, "per_item_s": per_item}
     tpath = out.parent / f"{out.name}_timing.json"

@@ -109,16 +109,27 @@ cd submission
 $env:TTS_KIT = "C:\path\to\kit"
 ..\.venv\Scripts\python.exe code\normalize.py --out predictions\t2_normalized.csv
 # eval audio: normalized text, everything else as in the baseline (seed 0, T4 noise)
-..\.venv\Scripts\python.exe code\synth.py --items ..\data\eval_items.csv --text-csv predictions\t2_normalized.csv --text-column normalized_text --out predictions\t2_norm --noise t4 --seed 0
+..\.venv\Scripts\python.exe code\synth.py --items ..\data\eval_items.csv --text-csv predictions\t2_normalized.csv --text-column normalized_text --out predictions\t2_norm --noise t4 --seed 0 --peak 0.95
 # validation audio with the Task 2 text (= val_control for Task 3), and its scores
-..\.venv\Scripts\python.exe code\synth.py --items ..\data\val_items.csv --text-csv predictions\t2_normalized.csv --text-column normalized_text --out predictions\val_control --noise t4 --seed 0
+..\.venv\Scripts\python.exe code\synth.py --items ..\data\val_items.csv --text-csv predictions\t2_normalized.csv --text-column normalized_text --out predictions\val_control --noise t4 --seed 0 --peak 0.95
 cd ..
 .venv\Scripts\python.exe metrics.py submission/predictions/val_control --json work/val_control.json --csv work/val_control.csv
 ```
 
-Result (seed 0): overall CER 0.2421 → **0.1209**, hard 0.4583 → **0.0946**, SIM 0.8303 → 0.8355.
-hindi, hinglish and long are bit-for-bit unchanged, because their text is unchanged and the noise
-is the T4's.
+**Post-processing: one clipping guard.** IndicF5 copies the prompt's loudness, and the wrapper
+rescales only quiet prompts (RMS < `target_rms`). Many outputs therefore reach full scale and are
+clipped by `save_wav`. This happens in the kit's own `data/baseline_val` too: val_hd_02 has 0.06 %
+of samples at |x| ≥ 0.999, just under the 0.1 % failure line. Without a guard, 3 of the 40 eval
+outputs (ev_hi_01, ev_hi_05, ev_hd_05) fail the clipping check and would score as failed items.
+`synth.py --peak 0.95` therefore scales an utterance down so its peak is 0.95 *only if it would
+exceed that*. This is loudness normalization, which the rules allow; all other outputs are
+bit-identical to the plain baseline. All submitted audio uses it.
+
+Result (seed 0, `predictions/val_control`): overall CER 0.2421 → **0.1209**, hard 0.4583 →
+**0.0946**, SIM 0.8303 → 0.8354. hindi, hinglish and long keep exactly the baseline's CER
+(0.0342 / 0.302 / 0.0318). Their text is unchanged and the noise is the T4's, so the audio is the
+baseline's; the guard only scales down the few that would clip. All 40 `t2_norm` files pass the
+kit's sanity checks (`code/sanity_eval.py`), against 37/40 without the guard.
 
 Robustness check with recognizers outside the kit (`code/eval_extra.py`, Meta MMS-1B-all with its
 Hindi adapter). Latin letters are suppressed and digits are converted to words with `normalize()`,
@@ -144,7 +155,7 @@ transcript: 13 of 18 are exact after the scorer's canonicalization. The audio ex
 
 ## Task 4 – faster (groundwork; final timing after Task 3)
 
-Profiling (`work/profile_baseline.py`): 99 % of synthesis time is `CFM.sample()`, i.e. 32 Euler
+Profiling (`code/profile_baseline.py`): 99 % of synthesis time is `CFM.sample()`, i.e. 32 Euler
 steps × 2 transformer passes for classifier-free guidance. Prompt preprocessing, the vocoder and
 resampling together take under 1 %. `code/fast.py` re-implements `CFM.sample()`/`infer_process()`
 with the same weights, duration rule, chunking, cross-fade and initial noise. It changes only how
@@ -162,7 +173,7 @@ Correctness: in fp32 with 32 steps, `fast.py --check` reproduces the baseline en
 (correlation 1.00000).
 
 Step-count sweep on the 24 validation items with the Task 2 text (seed 0, T4 noise, scored with
-metrics.py; `work/sweep_fast.ps1`):
+metrics.py; `code/sweep_fast.ps1`):
 
 | engine | steps | CER | SIM | synthesis time |
 |---|---|---|---|---|

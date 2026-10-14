@@ -20,8 +20,8 @@ function Run($what, [scriptblock]$cmd) {
 
 Set-Location $SUB
 Run "Task 3 text" { & $PY code\make_t3_text.py --out code\t3_text.csv }
-Run "val_idea (24 validation items)" { & $PY code\synth.py --items "$KIT\data\val_items.csv" --text-csv code\t3_text.csv --text-column t3_text --out predictions\val_idea --noise t4 --seed 0 }
-Run "t3_idea (40 evaluation items)" { & $PY code\synth.py --items "$KIT\data\eval_items.csv" --text-csv code\t3_text.csv --text-column t3_text --out predictions\t3_idea --noise t4 --seed 0 }
+Run "val_idea (24 validation items)" { & $PY code\synth.py --items "$KIT\data\val_items.csv" --text-csv code\t3_text.csv --text-column t3_text --out predictions\val_idea --noise t4 --seed 0 --peak 0.95 }
+Run "t3_idea (40 evaluation items)" { & $PY code\synth.py --items "$KIT\data\eval_items.csv" --text-csv code\t3_text.csv --text-column t3_text --out predictions\t3_idea --noise t4 --seed 0 --peak 0.95 }
 Move-Item predictions\*_timing.json code\timing\ -Force
 
 Set-Location $KIT
