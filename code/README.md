@@ -142,6 +142,44 @@ level on the 17 English words of the validation items, plus the loanword in the 
 transcript: 13 of 18 are exact after the scorer's canonicalization. The audio experiment
 (`val_idea/`, `t3_idea/`) runs only after the idea card was submitted.
 
+## Task 4 – faster (groundwork; final timing after Task 3)
+
+Profiling (`work/profile_baseline.py`): 99 % of synthesis time is `CFM.sample()`, i.e. 32 Euler
+steps × 2 transformer passes for classifier-free guidance. Prompt preprocessing, the vocoder and
+resampling together take under 1 %. `code/fast.py` re-implements `CFM.sample()`/`infer_process()`
+with the same weights, duration rule, chunking, cross-fade and initial noise. It changes only how
+the work is executed:
+
+* the conditional and unconditional guidance passes run as one batch of 2
+* the text embedding (4 ConvNeXt blocks) is computed once per item instead of at every step,
+  since it does not depend on the noisy audio or the time
+* the reference clip is preprocessed once per prompt
+* bf16 autocast for the transformer. fp16 overflows to inf/NaN in this model, which is probably
+  why IndicF5's loader keeps fp32; bf16 has fp32's exponent range
+* fewer flow-matching steps (`nfe_step`, an allowed decoding setting)
+
+Correctness: in fp32 with 32 steps, `fast.py --check` reproduces the baseline engine's output
+(correlation 1.00000).
+
+Step-count sweep on the 24 validation items with the Task 2 text (seed 0, T4 noise, scored with
+metrics.py; `work/sweep_fast.ps1`):
+
+| engine | steps | CER | SIM | synthesis time |
+|---|---|---|---|---|
+| baseline wrapper, fp32 (val_control) | 32 | 0.1209 | 0.8355 | 444.8 s |
+| fast.py bf16 | 32 | 0.1236 | 0.8349 | (GPU shared with another job) |
+| fast.py bf16 | 16 | 0.1242 | 0.8338 | 75.9 s |
+| fast.py bf16 | 12 | 0.1200 | 0.8352 | 57.7 s |
+| fast.py bf16 | 8 | 0.1434 | 0.8215 | 38.7 s |
+
+12 steps keeps CER and SIM within noise of the full model at about 7.7× speed. 8 steps starts to
+lose words (+19 % CER) and speaker similarity. The official speed-up is measured on the Task 3
+system against `baseline/run_baseline.py` in the same session.
+
+The same seed with different noise (native RTX 4050 noise vs the T4's) moves category CER a
+lot: hindi 0.034 → 0.045, long 0.032 → 0.051, overall 0.2421 → 0.2429. Small differences on 24
+items are mostly noise, so comparisons here keep the noise fixed.
+
 ## Files written outside `submission/`
 
 `work/` (in the kit folder) holds scores, logs and scratch audio. None of it is needed to check the
