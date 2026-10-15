@@ -1,0 +1,43 @@
+{
+ "total_synth_s": 57.103,
+ "n_items": 24,
+ "model_load_s": 10.1,
+ "seed": 0,
+ "overrides": {
+  "nfe_step": 12
+ },
+ "amp": "bf16",
+ "batched_cfg": true,
+ "peak_guard": 0.95,
+ "noise": "t4",
+ "gpu": "NVIDIA GeForce RTX 4050 Laptop GPU",
+ "python": "3.12.1",
+ "items_file": "C:\\Users\\satya\\Desktop\\TTS\\data\\val_items.csv",
+ "text_csv": "code\\t3_text.csv",
+ "per_item_s": {
+  "val_hi_01": 1.895,
+  "val_hi_02": 1.501,
+  "val_hi_03": 1.682,
+  "val_hi_04": 2.078,
+  "val_hi_05": 1.513,
+  "val_hi_06": 1.771,
+  "val_hg_01": 1.332,
+  "val_hg_02": 1.675,
+  "val_hg_03": 1.502,
+  "val_hg_04": 1.261,
+  "val_hg_05": 1.492,
+  "val_hg_06": 1.734,
+  "val_hd_01": 1.645,
+  "val_hd_02": 1.528,
+  "val_hd_03": 1.497,
+  "val_hd_04": 1.9,
+  "val_hd_05": 1.403,
+  "val_hd_06": 1.739,
+  "val_hd_07": 1.439,
+  "val_hd_08": 2.332,
+  "val_lg_01": 5.988,
+  "val_lg_02": 5.388,
+  "val_lg_03": 4.901,
+  "val_lg_04": 7.91
+ }
+}

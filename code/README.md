@@ -174,7 +174,18 @@ Results on the 24 validation items (kit `metrics.py`):
 All six hinglish items improve; hard, hindi and long items are unchanged, since their text is unchanged.
 Per-item scores: `work/val_idea.csv` (written by `run_task3.ps1`).
 
-## Task 4 – faster (groundwork; final timing after Task 3)
+## Task 4 – faster
+
+```powershell
+# times baseline/run_baseline.py and code/fast.py on the 24 validation items in the same session
+# (model loaded, one warm-up excluded), scores the fast system, writes t4_fast/, fills results.json
+powershell -ExecutionPolicy Bypass -File submission\code\run_task4.ps1 -Nfe 12
+```
+
+Official run (Task 3 text, same machine and session): baseline 397.4 s, fast system 57.1 s, so the
+speed-up is **6.96×**. Validation CER 0.0575 against 0.0571 for the Task 3 system (ratio 1.01; the
+limit is 1.2), SIM 0.839. All 40 `t4_fast/` files pass the kit's audio sanity checks. Timing files:
+`code/timing/baseline_val_timing.json` and `code/timing/val_fast_timing.json`.
 
 Profiling (`code/profile_baseline.py`): 99 % of synthesis time is `CFM.sample()`, i.e. 32 Euler
 steps × 2 transformer passes for classifier-free guidance. Prompt preprocessing, the vocoder and
