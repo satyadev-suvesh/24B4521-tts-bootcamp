@@ -252,6 +252,30 @@ remaining errors are shared by the oracle: न्यू loses its glide, ऑ is 
 वॉकिंग → वाकिंग), and स्लीप is sometimes heard with a final ब. These come from how the model renders those sounds (or how
 the recognizers spell them), not from the respelling.
 
+### Analysis: what fine-tuning changed in the model
+
+`code/compare_f5_weights.py` compares IndicF5 with the checkpoint it was fine-tuned from, F5-TTS
+Base (`SWivid/F5-TTS`, `F5TTS_Base/model_1200000.safetensors`). IndicF5 keeps F5-TTS's first 1700
+vocabulary entries (ASCII, Latin letters, digits, pinyin) at the same indices. It reuses entries
+1700–2397 for Indic characters; in F5-TTS those rows held accented Latin, Arabic, Thai and Hebrew
+characters (अ sits in the row of Hebrew מ).
+
+| part of the model | IndicF5 vs F5-TTS Base |
+|---|---|
+| character embeddings of Latin letters (a–z, A–Z) | cosine 0.998 (all rows also shrunk ×0.82) |
+| digits / pinyin syllables | cosine 0.994 / 1.000 |
+| Devanagari embeddings vs the old rows they took over | cosine 0.993 |
+| ConvNeXt text blocks | weights moved by 39 % (relative Frobenius norm) |
+| DiT transformer blocks | weights moved by 65 % |
+
+Fine-tuning hardly moved the embedding table. Devanagari letters are still represented by the
+vectors F5-TTS had learned for Hebrew, Thai or Arabic characters. The network that reads the table
+was rewritten instead. What a character sounds like is decided in the text blocks and the
+transformer, and these were retrained on Indic speech only. The Latin-letter vectors are intact,
+but nothing downstream maps them to English sounds any more, so the model reads them as some
+Hindi-like syllables. This fits the ablation above: Devanagari letters, even naive ones, halve the
+error; spelling the words as an Indian speaker says them removes most of the rest.
+
 ## Task 4 – faster
 
 ```powershell
