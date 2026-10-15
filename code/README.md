@@ -194,6 +194,15 @@ level on the 17 English words of the validation items, plus the loanword in the 
 transcript: 13 of 18 are exact after the scorer's canonicalization. The audio experiment
 (`val_idea/`, `t3_idea/`) was run only after the idea card (parts 1–3) was submitted on the form.
 
+After the experiment, running the respeller on the example words in its own code comments showed
+three implementation bugs, now fixed:
+- the -ation rule never fired because of an off-by-one index (station → स्टैशन instead of स्टेशन)
+- "ng" before a word-final e was read with a hard g, against the soft-g rule (change → चैंग instead of चेंज)
+- a nasal before the य glide lost its virama (menu → मेनयू instead of मेन्यू)
+
+The fixes change the text of none of the 64 items (`code/t3_text.csv` is byte-identical), so all
+submitted audio and scores stand as they are.
+
 ```powershell
 # everything below: Task 3 text, val_idea/ + t3_idea/ (seed 0, T4 noise, baseline decoding),
 # metrics.py on val_idea and val_control, MMS/WavLM check, results.json, zip + check_format

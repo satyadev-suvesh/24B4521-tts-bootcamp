@@ -117,7 +117,9 @@ def _vowel(s, i):
             s.V("ao"); return i + 2
         if nxt == "l" and (nxt2 == "l" or (nxt2 in "t" and nxt2)):  # call, salt
             s.V("ao"); return i + 1
-        if w.startswith("tion", i + 2) and s.cons_run(i + 1) == 1:  # station, nation
+        if w[i + 1:] in ("tion", "tions"):                        # station, nation (not national)
+            s.V("e"); return i + 1
+        if re.fullmatch(r"nge[sd]?", w[i + 1:]):                  # change, range: magic e over soft -nge
             s.V("e"); return i + 1
         if s.magic_e(i) or (s.cons_run(i + 1) == 1 and w[i + 2:] == "le"):  # late, table
             s.V("e"); return i + 1
@@ -314,6 +316,8 @@ def _consonant(s, i):
         s.C("व"); return i + 2
     if rest.startswith("ck"):
         s.C("क"); return i + 2
+    if re.fullmatch(r"nge[sd]?", rest):                          # change, challenge: soft g after n
+        s.C("न", "ज"); return i + 2
     if rest.startswith("ng"):
         s.C("न", "ग"); return i + 2
     if i == 0 and rest.startswith("kn"):
@@ -433,7 +437,8 @@ def _render(toks):
         if nxt and nxt[0] == "C":
             # a nasal before a consonant of another place is left bare, as Hindi spells
             # loanwords (ऑनलाइन, इनपुट); schwa deletion removes its vowel when read
-            if not (val in NASALS and prev and prev[0] == "V"):
+            # (except before the glide य: menu -> मेन्यू, as in अन्य)
+            if not (val in NASALS and prev and prev[0] == "V" and nxt[1] != "य"):
                 out.append("्")
     return "".join(out)
 
