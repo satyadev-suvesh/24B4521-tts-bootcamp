@@ -84,6 +84,10 @@ analysis below:
   (12/03/2026→"पेड़म शोर एन्यो…"). Three items also contain an abbreviation (RBI, ATM, GST), but
   the number spans are 2–3× longer in the reference, so number_error is the main error.
 
+Two items below 0.20 were also checked by ear, because both recognizers mishear one word in them:
+val_hi_04 ("धैर्य" heard as "धैरे") and val_hi_06 ("रुककर" heard as "रुपकर"). Both sound correct, so
+they are not tagged.
+
 Two mechanisms, found by reading the model code (`f5_tts/infer/utils_infer.py`,
 `f5_tts/model/utils.py`) and its vocabulary (`checkpoints/vocab.txt`, 2545 tokens):
 
@@ -159,9 +163,15 @@ for every system. So they are only used on the hindi, hinglish and hard items. H
 | Task 2 (`val_control`) | 0.095 | 0.184 | 0.094 | 0.044 | **0.104** |
 
 ```powershell
-# every folder scored in this README, four recognizers (about 20 min)
-.venv\Scripts\python.exe submission\code\eval_extra.py data\baseline_val submission\predictions\val_control work\val_control_s1 work\val_control_s2 submission\predictions\val_idea work\val_idea_s1 work\val_idea_s2 work\val_fast work\abl_naive_s0 work\abl_naive_s1 work\abl_naive_s2 work\abl_oracle_s0 work\abl_oracle_s1 work\abl_oracle_s2 --asr whisper,mms,whisper_hi,vakyansh --json work\robust4.json --csv work\robust4.csv
+# baseline, Task 2 and Task 3 (seeds 0-2), Task 4, the Task 3 analysis and four Task 4 sweep settings
+# (folders made by the Task 3/4 commands below), four recognizers, about 25 min
+$sweep = foreach ($c in "p0-2-4-6-8-12-16-24-32", "e7", "u12", "e10") { foreach ($s in 0, 1, 2) { "work\t4sweep\${c}_s$s" } }
+.venv\Scripts\python.exe submission\code\eval_extra.py data\baseline_val submission\predictions\val_control work\val_control_s1 work\val_control_s2 submission\predictions\val_idea work\val_idea_s1 work\val_idea_s2 work\val_fast $sweep work\abl_naive_s0 work\abl_naive_s1 work\abl_naive_s2 work\abl_oracle_s0 work\abl_oracle_s1 work\abl_oracle_s2 --asr whisper,mms,whisper_hi,vakyansh --json work\robust4.json --csv work\robust4.csv
 ```
+
+The Hindi Whisper's own `generation_config.json` predates language selection in `transformers`;
+`openai/whisper-large-v2`'s file (same tokenizer) is used instead, saved over it in
+`work/models/whisper-hindi-large-v2/`.
 
 Without the T4 emulation, the official command is equivalent apart from the noise:
 `python baseline/run_baseline.py --items data/eval_items.csv --out predictions/t2_norm --text-csv predictions/t2_normalized.csv --text-column normalized_text`.
@@ -191,7 +201,7 @@ Results on the 24 validation items (kit `metrics.py`):
 | hinglish CER, mean of seeds 0/1/2 | 0.306 | **0.043** |
 | overall CER, seed 0 (mean of 3 seeds) | 0.121 (0.128) | 0.057 (0.062) |
 | SIM, seed 0 (mean of 3 seeds) | 0.835 (0.839) | 0.840 (0.839) |
-| hinglish CER with MMS-1B (`code/eval_extra.py`) | 0.296 | 0.060 |
+| hinglish CER with MMS-1B (`code/eval_extra.py`), seed 0 | 0.296 | 0.060 |
 
 Hinglish CER, mean of seeds 0/1/2, with four recognizers (see "Four recognizers" above):
 
@@ -284,7 +294,7 @@ the work is executed and the ODE time grid:
 
 With fp32, 32 uniform steps and CPU noise, `fast.py --check` reproduces the baseline engine's
 output (correlation 1.00000). After all of the above, 99 % of the remaining time is the
-transformer itself (`work/profile_fast.py`): the GPU is compute-bound, so fewer transformer passes
+transformer itself (`code/profile_fast.py`): the GPU is compute-bound, so fewer transformer passes
 are the only large lever. (cuDNN attention was tried and was slower than PyTorch's default
 memory-efficient kernel on this Windows build; flash attention is not available in it.)
 
@@ -324,8 +334,14 @@ so the chosen grid is EPSS-7 plus 12/32. The 7-step grids take 12 % less time, b
 recognizers is 10–14 % worse with them, which is too close to the 1.2 limit for 40 items. The two
 extra recognizers (hindi, hinglish and hard items, 3 seeds) agree: the chosen grid's CER is 0.94× the
 Task 3 system's (Whisper 0.96, MMS 1.05, Whisper-Hindi 0.67, Vakyansh 0.83), EPSS-7's is 1.04×
-(Whisper 1.10, Vakyansh 1.16). For the official run (seed 0) it is 0.83×. Skipping
-guidance in the last steps saves little and costs speaker similarity.
+(Whisper 1.10, Vakyansh 1.16). For the official run (seed 0, `work/val_fast` against `val_idea`)
+it is 0.83×. Skipping guidance in the last steps saves little and costs speaker similarity.
+
+```powershell
+cd submission
+..\.venv\Scripts\python.exe code\compare_t4.py ..\work\robust4.csv --t3 val_idea,val_idea_s1,val_idea_s2 --asr whisper,mms,whisper_hi,vakyansh --categories hindi,hinglish,hard
+..\.venv\Scripts\python.exe code\profile_fast.py 8 0-2-4-6-8-12-16-24-32     # per-stage time of the chosen system
+```
 
 An earlier step-count sweep with the Task 2 text and uniform steps (seed 0, `code/sweep_fast.ps1`)
 gave CER 0.1209 (fp32, 32 steps), 0.1242 (16), 0.1200 (12) and 0.1434 (8 uniform steps).

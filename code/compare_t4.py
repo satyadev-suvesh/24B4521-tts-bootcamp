@@ -3,13 +3,16 @@
 Compare Task 4 sweep settings with the Task 3 system, item by item and seed by seed.
 
 Input: the per-item CSV of eval_extra.py over the Task 3 folders (one per seed) and the sweep
-folders (<name>_s<seed>). For each setting it prints the mean CER (Whisper, MMS and their
-average), the ratio to the Task 3 system at the same seeds, SIM, time, speed-up, and the risk
+folders (<name>_s<seed>). For each setting it prints the mean CER per recognizer and their
+average, the ratio to the Task 3 system at the same seeds, SIM, time, speed-up, and the risk
 that a 40-item set (like the evaluation set) ends above the 1.2x CER limit: pairs (item, seed)
 are resampled 40 at a time and the CER ratio is recomputed (paired bootstrap).
 
-    python code/compare_t4.py ../work/t4sweep_scores.csv --t3 val_idea,val_idea_s1,val_idea_s2 \
-        --timing-dir ../work/t4sweep --baseline-s 436.1
+    python code/compare_t4.py ../work/t4sweep_all.csv --t3 val_idea,val_idea_s1,val_idea_s2 \
+        --timing-dir ../work/t4sweep --baseline-s 408.6
+    # four recognizers, hindi / hinglish / hard items only (see eval_extra.py)
+    python code/compare_t4.py ../work/robust4.csv --t3 val_idea,val_idea_s1,val_idea_s2 \
+        --asr whisper,mms,whisper_hi,vakyansh --categories hindi,hinglish,hard
 """
 import argparse, csv, json, re
 from collections import defaultdict
@@ -27,10 +30,12 @@ def main():
     ap.add_argument("--n-eval", type=int, default=40)
     ap.add_argument("--boot", type=int, default=20000)
     ap.add_argument("--asr", default="whisper,mms", help="recognizers to average (columns cer_<name>)")
+    ap.add_argument("--categories", default="hindi,hinglish,hard,long", help="item categories to include")
     a = ap.parse_args()
     asr = a.asr.split(",")
+    cats = set(a.categories.split(","))
 
-    rows = list(csv.DictReader(open(a.scores_csv, encoding="utf-8")))
+    rows = [r for r in csv.DictReader(open(a.scores_csv, encoding="utf-8")) if r["category"] in cats]
     by = defaultdict(dict)                       # folder name -> id -> row
     for r in rows:
         by[Path(r["folder"]).name][r["id"]] = r
