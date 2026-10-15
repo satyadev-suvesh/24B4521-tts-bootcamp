@@ -260,6 +260,14 @@ vocabulary entries (ASCII, Latin letters, digits, pinyin) at the same indices. I
 1700–2397 for Indic characters; in F5-TTS those rows held accented Latin, Arabic, Thai and Hebrew
 characters (अ sits in the row of Hebrew מ).
 
+```powershell
+# F5-TTS Base checkpoint and vocabulary (1.3 GB), then the comparison
+New-Item -ItemType Directory -Force work\models\f5base
+curl.exe -L -o work\models\f5base\F5TTS_Base_model_1200000.safetensors https://huggingface.co/SWivid/F5-TTS/resolve/main/F5TTS_Base/model_1200000.safetensors
+curl.exe -L -o work\models\f5base\F5TTS_Base_vocab.txt https://huggingface.co/SWivid/F5-TTS/resolve/main/F5TTS_Base/vocab.txt
+.venv\Scripts\python.exe submission\code\compare_f5_weights.py --f5 work\models\f5base\F5TTS_Base_model_1200000.safetensors
+```
+
 | part of the model | IndicF5 vs F5-TTS Base |
 |---|---|
 | character embeddings of Latin letters (a–z, A–Z) | cosine 0.998 (all rows also shrunk ×0.82) |
