@@ -26,7 +26,9 @@ def main():
     ap.add_argument("--baseline-s", type=float)
     ap.add_argument("--n-eval", type=int, default=40)
     ap.add_argument("--boot", type=int, default=20000)
+    ap.add_argument("--asr", default="whisper,mms", help="recognizers to average (columns cer_<name>)")
     a = ap.parse_args()
+    asr = a.asr.split(",")
 
     rows = list(csv.DictReader(open(a.scores_csv, encoding="utf-8")))
     by = defaultdict(dict)                       # folder name -> id -> row
@@ -43,20 +45,21 @@ def main():
 
     rng = np.random.default_rng(0)
     f = lambda r, k: float(r[k])
-    print(f"{'setting':22s} {'seeds':>5s} {'CER_w':>7s} {'CER_mms':>7s} {'CER_avg':>7s} {'ratio':>6s} "
-          f"{'hgl_avg':>7s} {'SIM_e':>6s} {'SIM_w':>6s} {'time_s':>7s} {'speedup':>7s} {'P(>1.2)':>7s}")
+    print(f"{'setting':22s} {'seeds':>5s} " + "".join(f"{'CER_' + n[:6]:>11s}" for n in asr) +
+          f" {'CER_avg':>7s} {'ratio':>6s} {'hgl_avg':>7s} {'SIM_e':>6s} {'SIM_w':>6s} {'time_s':>7s} {'speedup':>7s} {'P(>1.2)':>7s}")
     for cfg, seeds in groups.items():
         pairs_x, pairs_r = [], []
-        cw, cm, se, sw, hg = [], [], [], [], []
+        per, se, sw, hg = {n: [] for n in asr}, [], [], []
         for s, d in seeds.items():
             if s not in ref:
                 continue
             for iid, r in d.items():
-                x = (f(r, "cer_whisper") + f(r, "cer_mms")) / 2
+                x = np.mean([f(r, f"cer_{n}") for n in asr])
                 rr = ref[s][iid]
                 pairs_x.append(x)
-                pairs_r.append((f(rr, "cer_whisper") + f(rr, "cer_mms")) / 2)
-                cw.append(f(r, "cer_whisper")); cm.append(f(r, "cer_mms"))
+                pairs_r.append(np.mean([f(rr, f"cer_{n}") for n in asr]))
+                for n in asr:
+                    per[n].append(f(r, f"cer_{n}"))
                 se.append(f(r, "sim_ecapa")); sw.append(f(r, "sim_wavlm"))
                 if r["category"] == "hinglish":
                     hg.append(x)
@@ -73,7 +76,7 @@ def main():
                     t.append(json.loads(p.read_text(encoding="utf-8"))["total_synth_s"])
         tm = float(np.mean(t)) if t else float("nan")
         sp = a.baseline_s / tm if (a.baseline_s and t) else float("nan")
-        print(f"{cfg:22s} {len(seeds):>5d} {np.mean(cw):7.4f} {np.mean(cm):7.4f} {px.mean():7.4f} "
+        print(f"{cfg:22s} {len(seeds):>5d} " + "".join(f"{np.mean(per[n]):11.4f}" for n in asr) + f" {px.mean():7.4f} "
               f"{px.sum() / pr.sum():6.3f} {np.mean(hg):7.4f} {np.mean(se):6.4f} {np.mean(sw):6.4f} "
               f"{tm:7.1f} {sp:7.2f} {(ratio_b > 1.2).mean():7.3f}")
 

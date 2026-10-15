@@ -144,6 +144,25 @@ agrees with the kit's Whisper (0.296 vs 0.302).
 .venv\Scripts\python.exe submission\code\eval_extra.py data/baseline_val submission/predictions/val_control --json work/extra.json --csv work/extra.csv
 ```
 
+### Four recognizers (all tasks)
+
+Two more open Hindi recognizers were added later to `eval_extra.py` (`--asr whisper,mms,whisper_hi,vakyansh`):
+`vasista22/whisper-hindi-large-v2` (Whisper large-v2 fine-tuned on Hindi) and
+`Harveenchadha/vakyansh-wav2vec2-hindi-him-4200` (wav2vec2 CTC trained on 4200 h of Hindi). Both
+are unreliable on the 25–45 s long items. Vakyansh decodes some whole files to a few words, yet
+transcribes the same audio correctly in 20 s pieces, and the Hindi Whisper drops the end of val_lg_04
+for every system. So they are only used on the hindi, hinglish and hard items. Hard CER, seed 0:
+
+| hard CER | kit Whisper | MMS-1B | Whisper-Hindi | Vakyansh | mean |
+|---|---|---|---|---|---|
+| baseline (`data/baseline_val`) | 0.458 | 0.447 | 0.410 | 0.428 | 0.436 |
+| Task 2 (`val_control`) | 0.095 | 0.184 | 0.094 | 0.044 | **0.104** |
+
+```powershell
+# every folder scored in this README, four recognizers (about 20 min)
+.venv\Scripts\python.exe submission\code\eval_extra.py data\baseline_val submission\predictions\val_control work\val_control_s1 work\val_control_s2 submission\predictions\val_idea work\val_idea_s1 work\val_idea_s2 work\val_fast work\abl_naive_s0 work\abl_naive_s1 work\abl_naive_s2 work\abl_oracle_s0 work\abl_oracle_s1 work\abl_oracle_s2 --asr whisper,mms,whisper_hi,vakyansh --json work\robust4.json --csv work\robust4.csv
+```
+
 Without the T4 emulation, the official command is equivalent apart from the noise:
 `python baseline/run_baseline.py --items data/eval_items.csv --out predictions/t2_norm --text-csv predictions/t2_normalized.csv --text-column normalized_text`.
 
@@ -174,6 +193,13 @@ Results on the 24 validation items (kit `metrics.py`):
 | SIM, seed 0 (mean of 3 seeds) | 0.835 (0.839) | 0.840 (0.839) |
 | hinglish CER with MMS-1B (`code/eval_extra.py`) | 0.296 | 0.060 |
 
+Hinglish CER, mean of seeds 0/1/2, with four recognizers (see "Four recognizers" above):
+
+| | kit Whisper | MMS-1B | Whisper-Hindi | Vakyansh | mean |
+|---|---|---|---|---|---|
+| val_control (Task 2 text) | 0.306 | 0.313 | 0.318 | 0.304 | 0.310 |
+| val_idea (Task 3) | 0.043 | 0.048 | 0.014 | 0.048 | **0.038 (−88 %)** |
+
 All six hinglish items improve; hard, hindi and long items are unchanged, since their text is unchanged.
 Per item (seed 0, kit Whisper):
 
@@ -202,15 +228,16 @@ each Latin letter by one fixed Devanagari letter with no English spelling knowle
 ओफ्फिके, flight → फ्लिग्ह्त), and an **oracle** that uses the reference's own spelling of each word (the
 best any respelling can do with this model). Hinglish CER, mean of 3 seeds:
 
-| text given to the model | Whisper | MMS-1B | English-word char. error (seed 0) |
-|---|---|---|---|
-| Latin English words (Task 2 text) | 0.306 | 0.313 | 84 % |
-| naive letter mapping | 0.170 | 0.177 | 44 % |
-| respelling rules (Task 3) | **0.043** | **0.048** | 12 % |
-| oracle respelling | 0.026 | 0.032 | 10 % |
+| text given to the model | Whisper | MMS-1B | Whisper-Hindi | Vakyansh | mean of 4 | English-word char. error (seed 0, Whisper) |
+|---|---|---|---|---|---|---|
+| Latin English words (Task 2 text) | 0.306 | 0.313 | 0.318 | 0.304 | 0.310 | 84 % |
+| naive letter mapping | 0.170 | 0.177 | 0.138 | 0.145 | 0.158 | 44 % |
+| respelling rules (Task 3) | **0.043** | **0.048** | **0.014** | **0.048** | **0.038** | 12 % |
+| oracle respelling | 0.026 | 0.032 | 0.006 | 0.059 | 0.031 | 10 % |
 
-Moving to Devanagari letters alone removes about 45 % of the error; the Indian-English
-pronunciation rules remove most of the rest and reach about 94 % of the oracle's gain. The
+Moving to Devanagari letters alone removes about half of the error (0.310 → 0.158, mean of four
+recognizers); the Indian-English pronunciation rules remove most of the rest and reach about 97 %
+of the oracle's gain (0.310 → 0.038 against 0.310 → 0.031). The
 remaining errors are shared by the oracle: न्यू loses its glide, ऑ is heard as आ (ऑनलाइन → आनलाइन,
 वॉकिंग → वाकिंग), and स्लीप is sometimes heard with a final ब. These come from how the model renders those sounds (or how
 the recognizers spell them), not from the respelling.
@@ -294,7 +321,10 @@ At 7 steps the grid decides everything: uniform steps raise CER by 46 %, EPSS by
 leaves one large step between 8/32 and 16/32 (0.076 → 0.293 after sway), and Whisper's CER rises
 10 % there. Adding the point 12/32 brings Whisper back to the full model's level for one more step,
 so the chosen grid is EPSS-7 plus 12/32. The 7-step grids take 12 % less time, but one of the two
-recognizers is 10–14 % worse with them, which is too close to the 1.2 limit for 40 items. Skipping
+recognizers is 10–14 % worse with them, which is too close to the 1.2 limit for 40 items. The two
+extra recognizers (hindi, hinglish and hard items, 3 seeds) agree: the chosen grid's CER is 0.94× the
+Task 3 system's (Whisper 0.96, MMS 1.05, Whisper-Hindi 0.67, Vakyansh 0.83), EPSS-7's is 1.04×
+(Whisper 1.10, Vakyansh 1.16). For the official run (seed 0) it is 0.83×. Skipping
 guidance in the last steps saves little and costs speaker similarity.
 
 An earlier step-count sweep with the Task 2 text and uniform steps (seed 0, `code/sweep_fast.ps1`)
