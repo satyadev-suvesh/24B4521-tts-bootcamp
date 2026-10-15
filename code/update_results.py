@@ -69,6 +69,7 @@ def main():
             ft = load(a.fast_timing)
             t4["settings"] = {**ft.get("overrides", {}), "amp": ft.get("amp"), "batched_cfg": ft.get("batched_cfg"),
                               "cached_text_embedding": True, "cached_prompt": True, "noise": ft.get("noise"),
+                              "noise_on": ft.get("noise_on", "cpu"),
                               "peak_guard": ft.get("peak_guard"), "gpu": ft.get("gpu")}
     Path(a.results).write_text(json.dumps(res, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(res, ensure_ascii=False, indent=2))

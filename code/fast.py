@@ -12,13 +12,16 @@ CFM.sample() + infer_process() step by step and only changes how the work is exe
     because it does not depend on the noisy audio or the time step        (same maths)
   * the reference clip is preprocessed once per prompt and cached          (same maths)
   * optional bf16 autocast for the transformer (fp16 overflows in this model; bf16 keeps the fp32 range)
-  * optional fewer flow-matching steps (`nfe_step`, an allowed decoding setting)
+  * the T4 initial noise is drawn on the GPU (t4_noise.randn_torch) instead of with numpy
+  * optional fewer flow-matching steps (`nfe_step`) on a chosen time grid (`--schedule`: the
+    baseline's uniform grid, EPSS, or custom points); both are allowed decoding settings
 
-With fp32 and 32 steps it reproduces the baseline (checked with --check). Duration estimate,
-text chunking, cross-fade, RMS handling and the initial noise are exactly the baseline's.
+With fp32, 32 uniform steps and --cpu-noise it reproduces the baseline (checked with --check).
+Duration estimate, text chunking, cross-fade, RMS handling and the initial noise are the baseline's.
 
+    # Task 4 system (see run_task4.ps1)
     python code/fast.py --items ../data/val_items.csv --text-csv code/t3_text.csv --text-column t3_text \
-        --out predictions/val_fast --nfe 16 --amp bf16
+        --out ../work/val_fast --nfe 8 --schedule 0-2-4-6-8-12-16-24-32 --amp bf16
 """
 import argparse, csv, json, platform, sys, time
 from pathlib import Path
@@ -32,13 +35,24 @@ from synth import KIT, read_csv  # noqa: E402
 
 TARGET_SR, HOP = 24000, 256
 
+# Empirically Pruned Step Sampling (Zheng et al. 2025, "Accelerating Flow-Matching-Based TTS via
+# Empirically Pruned Step Sampling"; the same table as upstream F5-TTS get_epss_timesteps): time
+# points in 1/32 units. Few-step sampling keeps the fine early steps of the 32-step sway schedule
+# and drops the redundant late ones; sway sampling is applied on top, as upstream.
+EPSS = {5: [0, 2, 4, 8, 16, 32], 6: [0, 2, 4, 6, 8, 16, 32], 7: [0, 2, 4, 6, 8, 16, 24, 32],
+        10: [0, 2, 4, 6, 8, 12, 16, 20, 24, 28, 32], 12: [0, 2, 4, 6, 8, 10, 12, 14, 16, 20, 24, 28, 32],
+        16: [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 14, 16, 20, 24, 28, 32]}
+
 
 class FastEngine:
-    def __init__(self, noise="t4", amp="bf16"):
+    def __init__(self, noise="t4", amp="bf16", gpu_noise=True):
         import torch
         self.torch = torch
         self.base = synth.load_engine(noise)            # baseline weights, pinned revision
         self.noise = noise
+        if noise == "t4" and gpu_noise:                  # same T4 noise, drawn on the GPU (~1 ms, not ~50 ms)
+            import t4_noise
+            t4_noise._GEN.device = self.base.device
         self.U = self.base.U
         cfm = self.base.ema
         self.cfm = getattr(cfm, "_orig_mod", cfm)        # unwrap torch.compile wrapper
@@ -89,9 +103,10 @@ class FastEngine:
         h = dit.norm_out(h, tt)
         return dit.proj_out(h)
 
-    def sample(self, cond, text_list, duration, steps, cfg_strength, sway, cfg_steps=None):
+    def sample(self, cond, text_list, duration, steps, cfg_strength, sway, cfg_steps=None, schedule="uniform"):
         """Same as CFM.sample() for batch 1 (euler, sway sampling, CFG), batched CFG.
-        cfg_steps: apply guidance only on the first cfg_steps steps (None = all, as the baseline)."""
+        cfg_steps: apply guidance only on the first cfg_steps steps (None = all, as the baseline).
+        schedule: "uniform" (the baseline's time points) or "epss" (EPSS table for 5-7/10/12/16 steps)."""
         torch = self.torch
         from f5_tts.model.utils import list_str_to_idx, lens_to_mask
         cond = cond.to(torch.float32)
@@ -118,7 +133,15 @@ class FastEngine:
         text2 = torch.cat([text_c, text_u], 0)
         cond2 = torch.cat([step_cond, torch.zeros_like(step_cond)], 0)
 
-        t = torch.linspace(0, 1, steps + 1, device=self.device, dtype=torch.float32)
+        if schedule == "epss" and steps in EPSS:
+            t = torch.tensor(EPSS[steps], device=self.device, dtype=torch.float32) / 32
+        elif schedule in ("uniform", "epss"):
+            t = torch.linspace(0, 1, steps + 1, device=self.device, dtype=torch.float32)
+        else:                                            # custom time points in 1/32, e.g. "0-2-4-8-16-32"
+            pts = [int(v) for v in schedule.split("-")]
+            if len(pts) != steps + 1 or pts[0] != 0 or pts[-1] != 32 or sorted(pts) != pts:
+                raise ValueError(f"bad schedule {schedule} for {steps} steps")
+            t = torch.tensor(pts, device=self.device, dtype=torch.float32) / 32
         if sway is not None:
             t = t + sway * (torch.cos(torch.pi / 2 * t) - 1 + t)
         for i in range(steps):
@@ -136,7 +159,7 @@ class FastEngine:
 
     def __call__(self, text, prompt_wav, prompt_text, seed=0, nfe_step=32, cfg_strength=2.0,
                  sway_sampling_coef=-1.0, speed=1.0, cross_fade_duration=0.15, target_rms=0.1,
-                 cfg_steps=None):
+                 cfg_steps=None, schedule="uniform"):
         torch = self.torch
         from baseline.tts import set_seed, resample, to_float
         set_seed(seed)
@@ -153,7 +176,7 @@ class FastEngine:
                 gen_chars = len("".join(gen_text.split()))
                 duration = r["ref_len"] + int(r["ref_len"] / ref_chars * gen_chars / speed)
                 mel = self.sample(r["cond"], text_list, duration, nfe_step, cfg_strength, sway_sampling_coef,
-                                  cfg_steps)
+                                  cfg_steps, schedule)
                 mel = mel[:, r["ref_len"]:, :].permute(0, 2, 1)
                 w = self.vocoder.decode(mel)
                 if r["rms"] < target_rms:
@@ -180,8 +203,12 @@ def main():
     ap.add_argument("--text-column", default="normalized_text")
     ap.add_argument("--nfe", type=int, default=16)
     ap.add_argument("--cfg-steps", type=int, default=None, help="guidance only on the first N steps")
+    ap.add_argument("--schedule", default="uniform",
+                    help="flow time points: 'uniform' (the baseline's grid), 'epss', or custom points in "
+                         "1/32 units such as 0-2-4-6-8-12-16-24-32; sway sampling is applied on top")
     ap.add_argument("--amp", choices=["none", "fp16", "bf16"], default="none", help="autocast dtype for the transformer")
     ap.add_argument("--noise", choices=["t4", "native"], default="t4")
+    ap.add_argument("--cpu-noise", action="store_true", help="draw the T4 noise with numpy (slower) instead of on the GPU")
     ap.add_argument("--peak", type=float, default=0.95, help="peak guard against clipping (0 = off)")
     ap.add_argument("--no-warmup", action="store_true")
     ap.add_argument("--check", action="store_true", help="compare with the baseline engine on the first item")
@@ -201,11 +228,13 @@ def main():
     import torch
     from baseline.tts import save_wav
     t0 = time.time()
-    eng = FastEngine(noise=a.noise, amp=a.amp)
+    eng = FastEngine(noise=a.noise, amp=a.amp, gpu_noise=not a.cpu_noise)
     load_s = time.time() - t0
     settings = dict(nfe_step=a.nfe)
     if a.cfg_steps is not None:
         settings["cfg_steps"] = a.cfg_steps
+    if a.schedule != "uniform":
+        settings["schedule"] = a.schedule
     if a.check and items:
         it = items[0]; p = prompts[it["prompt_id"]]
         yb = synth.synth_one(eng.base, it["text"], p["path"], p["transcript"], a.seed, a.noise)
@@ -234,7 +263,7 @@ def main():
     gpu = torch.cuda.get_device_name(0)
     timing = {"total_synth_s": round(total, 3), "n_items": len(items), "model_load_s": round(load_s, 1),
               "seed": a.seed, "overrides": settings, "amp": a.amp, "batched_cfg": True, "peak_guard": a.peak,
-              "noise": a.noise, "gpu": gpu, "python": platform.python_version(),
+              "noise": a.noise, "noise_on": "cpu" if a.cpu_noise else "gpu", "gpu": gpu, "python": platform.python_version(),
               "items_file": str(a.items), "text_csv": a.text_csv, "per_item_s": per_item}
     tpath = out.parent / f"{out.name}_timing.json"
     tpath.write_text(json.dumps(timing, indent=1), encoding="utf-8")

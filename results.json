@@ -33,20 +33,22 @@
     "val_control_cer": 0.1209
   },
   "task4": {
-    "method_name": "Same model, faster execution: batched CFG, cached text embedding, bf16 autocast, 12 flow steps",
+    "method_name": "Same model, faster execution: batched CFG, cached text embedding, bf16 autocast, T4 noise drawn on the GPU, 8 flow steps (time points: 0-2-4-6-8-12-16-24-32)",
     "settings": {
-      "nfe_step": 12,
+      "nfe_step": 8,
+      "schedule": "0-2-4-6-8-12-16-24-32",
       "amp": "bf16",
       "batched_cfg": true,
       "cached_text_embedding": true,
       "cached_prompt": true,
       "noise": "t4",
+      "noise_on": "gpu",
       "peak_guard": 0.95,
       "gpu": "NVIDIA GeForce RTX 4050 Laptop GPU"
     },
-    "val_cer": 0.0575,
-    "baseline_seconds": 397.393,
-    "fast_seconds": 57.103,
-    "speedup": 6.959
+    "val_cer": 0.0612,
+    "baseline_seconds": 408.583,
+    "fast_seconds": 37.429,
+    "speedup": 10.916
   }
 }

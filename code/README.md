@@ -7,10 +7,13 @@ are included.
 
 ```
 submission/
-  code/            scripts (this README, normalize.py, translit.py, synth.py, t4_noise.py, ...)
-  predictions/     t1_val_errors.csv, t2_normalized.csv, t2_norm/ (40 wav), val_control/ (24 wav)
+  code/            scripts (this README, normalize.py, translit.py, synth.py, fast.py, t4_noise.py, ...)
+                   and code/timing/ (timing files of every synthesis run, incl. the Task 4 pair)
+  predictions/     t1_val_errors.csv, t2_normalized.csv, t2_norm/ (40 wav), val_control/ (24 wav),
+                   val_idea/ (24 wav), t3_idea/ (40 wav), t4_fast/ (40 wav)
   results.json     validation numbers from metrics.py
   idea.md          idea card
+  report.md        answers to Q1–Q3
 ```
 
 ## AI assistant disclosure
@@ -172,26 +175,75 @@ Results on the 24 validation items (kit `metrics.py`):
 | hinglish CER with MMS-1B (`code/eval_extra.py`) | 0.296 | 0.060 |
 
 All six hinglish items improve; hard, hindi and long items are unchanged, since their text is unchanged.
-Per-item scores: `work/val_idea.csv` (written by `run_task3.ps1`).
+Per item (seed 0, kit Whisper):
+
+| item | baseline = control | idea | what the recognizer heard for the English words (idea) |
+|---|---|---|---|
+| val_hg_01 | 0.452 | 0.032 | अफिस / इंटरनेट / स्लो |
+| val_hg_02 | 0.216 | 0.135 | ने / अड्रेस / मेसेज (smallest gain: the य glide of न्यू is lost) |
+| val_hg_03 | 0.280 | 0.020 | फ्लाइट / कैंसल / होटल |
+| val_hg_04 | 0.263 | 0.026 | आनलाइन / क्लास |
+| val_hg_05 | 0.283 | 0.043 | वाकिंग / प्रोपर / स्लीब |
+| val_hg_06 | 0.318 | 0.023 | वीकेंड / मोवी / शॉपिंग |
+
+`code/analyze_words.py` aligns each transcript to the reference word by word. The character error on
+the 17 English words falls from 84 % (75/89 characters) with Latin input to 12 % (11/89) with the
+respelling (9 % at seeds 1 and 2).
+
+### Analysis: script alone, rules, and the best possible respelling
+
+```powershell
+powershell -ExecutionPolicy Bypass -File submission\code\run_ablation_t3.ps1
+```
+
+`code/run_ablation_t3.ps1` (not part of the submitted system) synthesizes the 6 hinglish validation
+items, seeds 0–2, with two more versions of the English words: a **naive** mapping that replaces
+each Latin letter by one fixed Devanagari letter with no English spelling knowledge (office →
+ओफ्फिके, flight → फ्लिग्ह्त), and an **oracle** that uses the reference's own spelling of each word (the
+best any respelling can do with this model). Hinglish CER, mean of 3 seeds:
+
+| text given to the model | Whisper | MMS-1B | English-word char. error (seed 0) |
+|---|---|---|---|
+| Latin English words (Task 2 text) | 0.306 | 0.313 | 84 % |
+| naive letter mapping | 0.170 | 0.177 | 44 % |
+| respelling rules (Task 3) | **0.043** | **0.048** | 12 % |
+| oracle respelling | 0.026 | 0.032 | 10 % |
+
+Moving to Devanagari letters alone removes about 45 % of the error; the Indian-English
+pronunciation rules remove most of the rest and reach about 94 % of the oracle's gain. The
+remaining errors are shared by the oracle: न्यू loses its glide, ऑ is heard as आ (ऑनलाइन → आनलाइन,
+वॉकिंग → वाकिंग), and स्लीप is sometimes heard with a final ब. These come from how the model renders those sounds (or how
+the recognizers spell them), not from the respelling.
 
 ## Task 4 – faster
 
 ```powershell
 # times baseline/run_baseline.py and code/fast.py on the 24 validation items in the same session
 # (model loaded, one warm-up excluded), scores the fast system, writes t4_fast/, fills results.json
-powershell -ExecutionPolicy Bypass -File submission\code\run_task4.ps1 -Nfe 12
+powershell -ExecutionPolicy Bypass -File submission\code\run_task4.ps1 -Nfe 8 -Schedule 0-2-4-6-8-12-16-24-32
 ```
 
-Official run (Task 3 text, same machine and session): baseline 397.4 s, fast system 57.1 s, so the
-speed-up is **6.96×**. Validation CER 0.0575 against 0.0571 for the Task 3 system (ratio 1.01; the
-limit is 1.2), SIM 0.839. All 40 `t4_fast/` files pass the kit's audio sanity checks. Timing files:
+The sweep and its comparison (about 1.5 h on this laptop):
+
+```powershell
+cd submission
+..\.venv\Scripts\python.exe code\sweep_t4.py --out ..\work\t4sweep --seeds 0,1,2 --configs u12,e12,e10,e7,u7,e6,e5,e7c6,e7c5,p0-2-4-6-8-12-16-24-32,p0-2-4-8-12-16-24-32
+# score the 3 Task 3 folders (seeds 0-2) and every sweep folder with Whisper + MMS, then compare
+..\.venv\Scripts\python.exe code\eval_extra.py predictions\val_idea ..\work\val_idea_s1 ..\work\val_idea_s2 (Get-ChildItem ..\work\t4sweep -Directory).FullName --csv ..\work\t4sweep_all.csv
+..\.venv\Scripts\python.exe code\compare_t4.py ..\work\t4sweep_all.csv --t3 val_idea,val_idea_s1,val_idea_s2 --timing-dir ..\work\t4sweep --baseline-s 408.6
+```
+
+**Official run** (Task 3 text, same machine and session): `baseline/run_baseline.py` 408.6 s, fast
+system 37.4 s, so the speed-up is **10.9×**. Validation CER 0.0612 against 0.0571 for the Task 3
+system (ratio 1.07; the limit is 1.2). With MMS-1B the fast system is lower: 0.083 against 0.091.
+SIM 0.836 (Task 3: 0.840). All 40 `t4_fast/` files pass the kit's audio sanity checks. Timing files:
 `code/timing/baseline_val_timing.json` and `code/timing/val_fast_timing.json`.
 
 Profiling (`code/profile_baseline.py`): 99 % of synthesis time is `CFM.sample()`, i.e. 32 Euler
 steps × 2 transformer passes for classifier-free guidance. Prompt preprocessing, the vocoder and
 resampling together take under 1 %. `code/fast.py` re-implements `CFM.sample()`/`infer_process()`
 with the same weights, duration rule, chunking, cross-fade and initial noise. It changes only how
-the work is executed:
+the work is executed and the ODE time grid:
 
 * the conditional and unconditional guidance passes run as one batch of 2
 * the text embedding (4 ConvNeXt blocks) is computed once per item instead of at every step,
@@ -199,29 +251,58 @@ the work is executed:
 * the reference clip is preprocessed once per prompt
 * bf16 autocast for the transformer. fp16 overflows to inf/NaN in this model, which is probably
   why IndicF5's loader keeps fp32; bf16 has fp32's exponent range
-* fewer flow-matching steps (`nfe_step`, an allowed decoding setting)
+* the T4 noise (`t4_noise.py`) is drawn with torch ops on the GPU (`randn_torch`, ~1 ms) instead
+  of numpy (~50 ms per item); it matches the numpy emulation to 5e-7
+* **8 flow steps on a non-uniform time grid** (an allowed decoding setting, see below)
 
-Correctness: in fp32 with 32 steps, `fast.py --check` reproduces the baseline engine's output
-(correlation 1.00000).
+With fp32, 32 uniform steps and CPU noise, `fast.py --check` reproduces the baseline engine's
+output (correlation 1.00000). After all of the above, 99 % of the remaining time is the
+transformer itself (`work/profile_fast.py`): the GPU is compute-bound, so fewer transformer passes
+are the only large lever. (cuDNN attention was tried and was slower than PyTorch's default
+memory-efficient kernel on this Windows build; flash attention is not available in it.)
 
-Step-count sweep on the 24 validation items with the Task 2 text (seed 0, T4 noise, scored with
-metrics.py; `code/sweep_fast.ps1`):
+**Choosing the time grid.** F5-TTS samples with sway sampling, t' = t − (cos(πt/2) − 1 + t), which
+packs steps near t = 0. With uniform t, cutting steps loses words quickly. EPSS (Empirically
+Pruned Step Sampling; Zheng et al., 2025, and upstream F5-TTS `get_epss_timesteps`) keeps the fine
+early steps of the 32-step grid and drops redundant late ones. `code/sweep_t4.py` ran each setting
+on the 24 validation items with the Task 3 text at seeds 0, 1 and 2 (bf16, T4 noise). Each output
+was scored with the kit's Whisper and with MMS-1B (`code/eval_extra.py`) and compared with the
+Task 3 system (fp32, 32 steps) item by item at the same seeds (`code/compare_t4.py`). The last
+column is the share of 20,000 resampled 40-item sets (pairs of item and seed) whose CER ratio
+exceeds the 1.2 limit, an estimate of the risk on the 40 evaluation items.
 
-| engine | steps | CER | SIM | synthesis time |
-|---|---|---|---|---|
-| baseline wrapper, fp32 (val_control) | 32 | 0.1209 | 0.8355 | 444.8 s |
-| fast.py bf16 | 32 | 0.1236 | 0.8349 | (GPU shared with another job) |
-| fast.py bf16 | 16 | 0.1242 | 0.8338 | 75.9 s |
-| fast.py bf16 | 12 | 0.1200 | 0.8352 | 57.7 s |
-| fast.py bf16 | 8 | 0.1434 | 0.8215 | 38.7 s |
+| setting (time points in 1/32) | steps | CER Whisper | CER MMS | ratio to Task 3 | SIM | time | speed-up | P(ratio > 1.2) |
+|---|---|---|---|---|---|---|---|---|
+| Task 3 system (fp32, uniform) | 32 | 0.0619 | 0.0965 | 1.00 | 0.839 | 408.6 s* | 1.0× | – |
+| uniform | 12 | 0.0606 | 0.0972 | 1.00 | 0.840 | 57.0 s | 7.2× | 1 % |
+| EPSS | 12 | 0.0610 | 0.1006 | 1.02 | 0.836 | 56.8 s | 7.2× | 0.3 % |
+| EPSS | 10 | 0.0606 | 0.1004 | 1.02 | 0.838 | 47.6 s | 8.6× | 1 % |
+| **0-2-4-6-8-12-16-24-32 (chosen)** | **8** | **0.0603** | 0.1011 | **1.02** | 0.830 | 38.4 s | **10.6×** | 1.4 % |
+| EPSS 0-2-4-6-8-16-24-32 | 7 | 0.0683 | 0.0987 | 1.05 | 0.833 | 33.8 s | 12.1× | 5 % |
+| 0-2-4-8-12-16-24-32 | 7 | 0.0708 | 0.0911 | 1.02 | 0.831 | 33.9 s | 12.1× | 3 % |
+| uniform | 7 | 0.0999 | 0.1310 | 1.46 | 0.822 | 33.9 s | 12.1× | 97 % |
+| EPSS | 6 | 0.0668 | 0.1027 | 1.07 | 0.816 | 29.3 s | 13.9× | 7 % |
+| EPSS | 5 | 0.0804 | 0.1084 | 1.19 | 0.818 | 24.7 s | 16.5× | 47 % |
+| EPSS 7, guidance on first 6 steps | 7 | 0.0669 | 0.1001 | 1.05 | 0.817 | 31.7 s | 12.9× | 5 % |
+| EPSS 7, guidance on first 5 steps | 7 | 0.0757 | 0.0964 | 1.09 | 0.817 | 29.5 s | 13.9× | 13 % |
 
-12 steps keeps CER and SIM within noise of the full model at about 7.7× speed. 8 steps starts to
-lose words (+19 % CER) and speaker similarity. The official speed-up is measured on the Task 3
-system against `baseline/run_baseline.py` in the same session.
+CER, SIM (ECAPA) and time are means over the 3 seeds; ratio = (Whisper + MMS) CER over the Task 3
+system's at the same seeds; speed-up against the official 408.6 s baseline (*the Task 3 row's time
+is the kit baseline's). Sweep times used CPU noise; the official run draws it on the GPU (37.4 s).
+
+At 7 steps the grid decides everything: uniform steps raise CER by 46 %, EPSS by 5 %. EPSS-7
+leaves one large step between 8/32 and 16/32 (0.076 → 0.293 after sway), and Whisper's CER rises
+10 % there. Adding the point 12/32 brings Whisper back to the full model's level for one more step,
+so the chosen grid is EPSS-7 plus 12/32. The 7-step grids take 12 % less time, but one of the two
+recognizers is 10–14 % worse with them, which is too close to the 1.2 limit for 40 items. Skipping
+guidance in the last steps saves little and costs speaker similarity.
+
+An earlier step-count sweep with the Task 2 text and uniform steps (seed 0, `code/sweep_fast.ps1`)
+gave CER 0.1209 (fp32, 32 steps), 0.1242 (16), 0.1200 (12) and 0.1434 (8 uniform steps).
 
 The same seed with different noise (native RTX 4050 noise vs the T4's) moves category CER a
 lot: hindi 0.034 → 0.045, long 0.032 → 0.051, overall 0.2421 → 0.2429. Small differences on 24
-items are mostly noise, so comparisons here keep the noise fixed.
+items are mostly noise, so comparisons here keep the noise fixed and use several seeds.
 
 ## Files written outside `submission/`
 

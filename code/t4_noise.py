@@ -80,15 +80,61 @@ def randn(numel, seed, offset, sms, max_threads_per_sm):
     return out, inc
 
 
+def randn_torch(numel, seed, offset, sms, max_threads_per_sm, device="cuda"):
+    """The same sampler as randn(), computed with int64/float32 torch ops on `device` (used by the
+    Task 4 engine: about 1 ms on the GPU instead of ~50 ms in numpy). Philox needs 32x32->64-bit
+    products; int64 multiplication wraps modulo 2^64, so the bit pattern is the unsigned product and
+    the high word is (p >> 32) & 0xFFFFFFFF."""
+    import torch
+    M = 0xFFFFFFFF
+    g = grid_size(numel, sms, max_threads_per_sm)
+    threads = g * BLOCK
+    e = torch.arange(numel, device=device, dtype=torch.int64)
+    it = e // (threads * UNROLL)
+    rem = e % (threads * UNROLL)
+    comp = rem // threads
+    c0 = (it + offset // 4) & M
+    c1 = torch.zeros_like(e)
+    c2 = rem % threads
+    c3 = torch.zeros_like(e)
+    seed = int(seed) & 0xFFFFFFFFFFFFFFFF
+    k0, k1 = seed & M, seed >> 32
+    for r in range(10):
+        p0 = c0 * int(_M0)
+        p1 = c2 * int(_M1)
+        c0, c1, c2, c3 = ((p1 >> 32) & M) ^ c1 ^ k0, p1 & M, ((p0 >> 32) & M) ^ c3 ^ k1, p0 & M
+        if r < 9:
+            k0 = (k0 + int(_W0)) & M
+            k1 = (k1 + int(_W1)) & M
+
+    def box_muller(x, y):
+        u = x.to(torch.float32) * float(_INV32) + float(np.float32(_INV32 / 2))
+        v = y.to(torch.float32) * float(_INV32_2PI) + float(np.float32(_INV32_2PI / 2))
+        s = torch.sqrt(-2.0 * torch.log(u))
+        return torch.sin(v) * s, torch.cos(v) * s
+
+    s01, c01 = box_muller(c0, c1)
+    s23, c23 = box_muller(c2, c3)
+    out = torch.where(comp == 0, s01, torch.where(comp == 1, c01, torch.where(comp == 2, s23, c23)))
+    counter_offset = ((numel - 1) // (BLOCK * g * UNROLL) + 1) * UNROLL
+    inc = ((counter_offset + 3) // 4) * 4
+    return out, inc
+
+
 class _Gen:
     def __init__(self, sms, mt):
         self.sms, self.mt, self.seed, self.offset = sms, mt, 0, 0
+        self.device = None          # None: numpy on the CPU; "cuda": randn_torch on the GPU
 
     def reset(self, seed):
         self.seed, self.offset = int(seed), 0
 
     def randn(self, *shape):
         numel = int(np.prod(shape))
+        if self.device is not None:
+            vals, inc = randn_torch(numel, self.seed, self.offset, self.sms, self.mt, self.device)
+            self.offset += inc
+            return vals.reshape(shape)
         vals, inc = randn(numel, self.seed, self.offset, self.sms, self.mt)
         self.offset += inc
         return vals.reshape(shape)
@@ -115,7 +161,9 @@ def install(device="T4"):
             if len(size) == 1 and isinstance(size[0], (tuple, list)):
                 size = tuple(size[0])
             vals = _GEN.randn(*[int(s) for s in size])
-            return real_torch.from_numpy(vals).to(device=device, dtype=dtype or real_torch.float32)
+            if isinstance(vals, np.ndarray):
+                vals = real_torch.from_numpy(vals)
+            return vals.to(device=device, dtype=dtype or real_torch.float32)
 
     cfm.torch = _TorchProxy()
     return _GEN
