@@ -16,6 +16,15 @@ submission/
   report.md        answers to Q1–Q3
 ```
 
+## Results at a glance (24 validation items, seed 0, kit `metrics.py`)
+
+| system | CER | SIM | what it targets |
+|---|---|---|---|
+| baseline (`data/baseline_val`, Task 1) | 0.2421 | 0.8303 | – (hard 0.458, hinglish 0.302) |
+| Task 2 normalizer (`val_control`) | 0.1209 | 0.8354 | hard **0.458 → 0.095** |
+| Task 3 respelling (`val_idea`) | 0.0571 | 0.8399 | hinglish **0.302 → 0.047** (3 seeds: 0.306 → 0.043; four recognizers: 0.310 → 0.038) |
+| Task 4 fast system (`t4_fast`) | 0.0612 | 0.8362 | **10.9×** faster (408.6 s → 37.4 s), CER 1.07× Task 3's |
+
 ## AI assistant disclosure
 
 **Claude Code** (Anthropic's AI coding assistant) was used throughout. It wrote the code in
